@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PseudoStudio — Pseudo Code Editor</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23282c34'/%3E%3Ctext x='8' y='12' font-size='12' text-anchor='middle' fill='%23528bff'%3E%E2%97%86%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+<div class="app">
+
+  <!-- title bar -->
+  <header class="titlebar">
+    <div class="brand">
+      <span class="logo">&#9672;</span>
+      <span class="brand-name">PseudoStudio</span>
+      <span class="brand-sub">pseudocode review editor</span>
+    </div>
+    <div class="toolbar">
+      <button id="btn-drive" class="tbtn primary" title="Load a workspace from a Google Drive folder">
+        Load Drive
+      </button>
+      <button id="btn-reset" class="tbtn" title="Clear saved progress and restore the default problem">Reset</button>
+      <button id="btn-format" class="tbtn" title="Format document">Format</button>
+    </div>
+    <div class="lang-badge" title="Detected language">Pseudo <code>.pseudo</code></div>
+  </header>
+
+  <div class="workspace">
+
+    <!-- sidebar: scrollable instruction (left) + files -->
+    <aside class="sidebar">
+      <div class="side-block side-block-instr">
+        <div class="side-header">PROBLEM</div>
+        <div id="instruction" class="instruction"><!-- rendered instruction.md --></div>
+      </div>
+      <div class="side-block side-block-files">
+        <div class="side-header">FILES</div>
+        <div id="file-list" class="file-list"></div>
+      </div>
+      <div class="side-tips">
+        <div class="tip"><kbd>&#8984;/Ctrl</kbd> + <kbd>Click</kbd> go to definition</div>
+        <div class="tip"><kbd>&#8984;/Ctrl</kbd> + <kbd>Space</kbd> autocomplete</div>
+        <div class="tip"><kbd>F12</kbd> peek definition</div>
+      </div>
+    </aside>
+
+    <!-- resizer -->
+    <div id="sidebar-resizer" class="resizer" title="Drag to resize sidebar"></div>
+
+    <!-- editor area -->
+    <main class="editor-area">
+      <nav id="tabs" class="tabs"></nav>
+      <div id="editor" class="editor"></div>
+      <div id="boot" class="boot">Loading editor…</div>
+      <div id="boot-error" class="boot-error"></div>
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text" class="loading-text">Connecting to Google Drive…</div>
+      </div>
+    </main>
+
+  </div>
+
+  <!-- status bar -->
+  <footer class="statusbar">
+    <div class="st-left">
+      <span class="st-dot"></span>
+      <span id="st-source">Default</span>
+      <span id="st-msg" class="st-msg"></span>
+    </div>
+    <div class="st-right">
+      <span id="st-pos"></span>
+      <span class="sep">|</span>
+      <span>UTF-8</span>
+      <span class="sep">|</span>
+      <span>Pseudo</span>
+      <span class="sep">|</span>
+      <span id="st-lang"></span>
+    </div>
+  </footer>
+
+</div>
+
+<!-- app logic (plain scripts, define window.PseudoStudio) -->
+<script src="config.js"></script>
+<script src="js/docs.js"></script>
+<script src="js/lang.js"></script>
+<script src="js/drive.js"></script>
+<script src="js/app.js"></script>
+
+<!-- markdown rendering + sanitization for instruction.md -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js" crossorigin="anonymous"></script>
+
+<!-- Monaco AMD loader (from CDN). A tiny no-op worker stub keeps the editor
+     fully frontend-only (no workerMain.js fetch), GitHub-Pages friendly. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js" crossorigin="anonymous"></script>
+<script>
+  function showBootError(msg) {
+    var ok = document.getElementById("boot");
+    if (ok) ok.style.display = "none";
+    var b = document.getElementById("boot-error");
+    if (b) { b.style.display = "block"; b.textContent = "Editor failed to start: " + msg; }
+  }
+  window.addEventListener("error", function (e) {
+    showBootError((e && e.message) || "unknown error");
+  });
+  self.MonacoEnvironment = {
+    getWorker: function () {
+      var blob = new Blob(["self.onmessage=function(){};"], { type: "text/javascript" });
+      return new Worker(URL.createObjectURL(blob));
+    }
+  };
+  require.config({ paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs" } });
+  require(["vs/editor/editor.main"], function () {
+    try {
+      window.PseudoStudio.boot(window.monaco);
+    } catch (err) {
+      showBootError("init: " + (err && err.message ? err.message : err));
+    }
+  }, function (err) {
+    showBootError("could not load Monaco from CDN (" + (err && err.message ? err.message : err) + "). Check your connection.");
+  });
+</script>
+</body>
+</html>
