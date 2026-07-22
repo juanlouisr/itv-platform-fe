@@ -114,12 +114,12 @@
             continue;
           }
           if (/^\s*STATE\s*:/.test(line)) { inState = true; continue; }
-          const mFn = /^\s*FUNCTION\s+([A-Za-z_]\w*)\s*\(([^)]*)\)/.exec(line);
+          const mFn = /^\s*FUNCTION\s+([A-Za-z_]\w*)\s*\(([^)]*)\)(?:\s*:\s*([A-Za-z_]\w*))?/.exec(line);
           if (mFn) {
             inState = false;
             const name = mFn[1];
             const params = parseParams(mFn[2], ln, line);
-            curFn = { uri: f.uri, name: name, line: ln + 1, col: line.indexOf(name) + 1, params: params, locals: [] };
+            curFn = { uri: f.uri, name: name, line: ln + 1, col: line.indexOf(name) + 1, params: params, returnType: mFn[3] || null, locals: [] };
             (idx.functions[name] = idx.functions[name] || []).push(curFn);
             continue;
           }
@@ -135,19 +135,125 @@
           }
           if (curFn) {
             const mAsgn = /^\s*([A-Za-z_]\w*)\s*=(?!=)/.exec(line);
-            if (mAsgn) curFn.locals.push({ name: mAsgn[1], uri: f.uri, line: ln + 1, col: line.indexOf(mAsgn[1]) + 1 });
+            if (mAsgn) {
+              const eqIndex = line.indexOf("=");
+              const rhs = line.substring(eqIndex + 1).trim();
+              curFn.locals.push({
+                name: mAsgn[1],
+                uri: f.uri,
+                line: ln + 1,
+                col: line.indexOf(mAsgn[1]) + 1,
+                rhs: rhs,
+                type: null
+              });
+            }
           }
         }
       });
+      inferLocalTypes(idx);
       return idx;
     }
     function parseParams(raw, ln, line) {
       const out = [];
       (raw || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (p) {
-        const name = p.replace(/^(\.\.\.)?/, "").trim();
-        out.push({ name: name, line: ln + 1, col: line.indexOf(p) + 1 });
+        const parts = p.split(":");
+        const rawName = parts[0].trim();
+        const type = parts[1] ? parts[1].trim() : null;
+        const name = rawName.replace(/^(\.\.\.)?/, "").trim();
+        out.push({ name: name, type: type, line: ln + 1, col: line.indexOf(p) + 1 });
       });
       return out;
+    }
+    function inferLocalTypes(idx) {
+      function findFn(name) {
+        const list = idx.functions[name];
+        return (list && list.length) ? list[0] : null;
+      }
+      function getModuleOf(uri) {
+        for (const k in idx.modules) {
+          if (idx.modules[k].uri.toString() === uri.toString()) return k;
+        }
+        return null;
+      }
+      function getFieldInModule(modName, fieldName) {
+        const fs = idx.fieldsByModule[modName];
+        return fs ? (fs.find(function (f) { return f.name === fieldName; }) || null) : null;
+      }
+      function getFuncInModule(modName, funcName) {
+        const list = idx.functions[funcName];
+        if (!list) return null;
+        const found = list.find(function (f) {
+          return getModuleOf(f.uri) === modName;
+        });
+        return found || null;
+      }
+
+      Object.values(idx.functions).flat().forEach(function (fn) {
+        const fnModule = getModuleOf(fn.uri);
+        const localTypeMap = {};
+
+        fn.params.forEach(function (p) {
+          if (p.type && idx.modules[p.type]) {
+            localTypeMap[p.name] = p.type;
+          }
+        });
+
+        fn.locals.forEach(function (lcl) {
+          if (!lcl.rhs) return;
+          let inferredType = null;
+
+          // 1. Member call: obj.method(...)
+          const mMemberCall = /^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*\(/.exec(lcl.rhs);
+          if (mMemberCall) {
+            const objName = mMemberCall[1];
+            const methodName = mMemberCall[2];
+            let objType = localTypeMap[objName] || null;
+            if (!objType && fnModule) {
+              const fld = getFieldInModule(fnModule, objName);
+              if (fld && fld.type && idx.modules[fld.type]) {
+                objType = fld.type;
+              }
+            }
+            if (objType) {
+              const meth = getFuncInModule(objType, methodName);
+              if (meth && meth.returnType && idx.modules[meth.returnType]) {
+                inferredType = meth.returnType;
+              }
+            }
+          } else {
+            // 2. Simple function call: func(...)
+            const mSimpleCall = /^([A-Za-z_]\w*)\s*\(/.exec(lcl.rhs);
+            if (mSimpleCall) {
+              const funcName = mSimpleCall[1];
+              const callee = findFn(funcName);
+              if (callee && callee.returnType && idx.modules[callee.returnType]) {
+                inferredType = callee.returnType;
+              }
+            } else {
+              // 3. Direct assignment: x = y
+              const mVar = /^([A-Za-z_]\w*)$/.exec(lcl.rhs);
+              if (mVar) {
+                const sourceVarName = mVar[1];
+                let varType = localTypeMap[sourceVarName] || null;
+                if (!varType && fnModule) {
+                  const fld = getFieldInModule(fnModule, sourceVarName);
+                  if (fld && fld.type && idx.modules[fld.type]) {
+                    varType = fld.type;
+                  }
+                }
+                if (varType) {
+                  inferredType = varType;
+                }
+              }
+            }
+          }
+
+          if (inferredType) {
+            lcl.type = inferredType;
+            localTypeMap[lcl.name] = inferredType;
+          }
+        });
+      });
     }
     function loc(uri, line, col, len) {
       const c = col || 1;
@@ -174,22 +280,50 @@
       return fs ? (fs.find(function (f) { return f.name === fieldName; }) || null) : null;
     }
     function funcInModule(moduleName, funcName) {
-      const f = findFunction(funcName);
-      if (!f) return null;
-      return moduleOf(f.uri) === moduleName ? f : null;
+      const list = INDEX.functions[funcName];
+      if (!list) return null;
+      const found = list.find(function (f) {
+        return moduleOf(f.uri) === moduleName;
+      });
+      return found || null;
     }
-    function typeOfVar(name, uri) {
+    function enclosingFn(uri, position) {
+      const fnList = Object.values(INDEX.functions).flat();
+      let best = null;
+      fnList.forEach(function (f) {
+        if (f.uri.toString() === uri.toString() && f.line <= position.lineNumber) {
+          if (!best || f.line > best.line) {
+            best = f;
+          }
+        }
+      });
+      return best;
+    }
+    function typeOfVar(name, uri, position) {
       const mod = moduleOf(uri);
       if (mod) {
         const f = (INDEX.fieldsByModule[mod] || []).find(function (x) { return x.name === name; });
         if (f && f.type && INDEX.modules[f.type]) return f.type;
       }
+      if (position) {
+        const fn = enclosingFn(uri, position);
+        if (fn) {
+          const p = fn.params.find(function (pp) { return pp.name === name; });
+          if (p && p.type && INDEX.modules[p.type]) return p.type;
+          for (let i = fn.locals.length - 1; i >= 0; i--) {
+            const lcl = fn.locals[i];
+            if (lcl.name === name && lcl.line <= position.lineNumber) {
+              if (lcl.type && INDEX.modules[lcl.type]) return lcl.type;
+              break;
+            }
+          }
+        }
+      }
       return null;
     }
     function resolveVar(name, model, position) {
       const uri = model.uri;
-      const fnList = Object.values(INDEX.functions).flat();
-      const fn = fnList.find(function (f) { return f.uri.toString() === uri.toString() && f.line <= position.lineNumber; });
+      const fn = enclosingFn(uri, position);
       if (fn) {
         const p = fn.params.find(function (pp) { return pp.name === name; });
         if (p) return loc(fn.uri, p.line, p.col, p.name.length);
@@ -214,7 +348,7 @@
       if (before.endsWith(".")) {
         const base = /([A-Za-z_]\w*)\s*\.$/.exec(before);
         if (base) {
-          const t = typeOfVar(base[1], model.uri);
+          const t = typeOfVar(base[1], model.uri, position);
           if (t) {
             const fn = funcInModule(t, name);
             if (fn) return loc(fn.uri, fn.line, fn.col, fn.name.length);
@@ -320,7 +454,7 @@
         const member = /([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]?\w*)$/.exec(before);
         if (member) {
           const base = member[1];
-          const t = typeOfVar(base, model.uri);
+          const t = typeOfVar(base, model.uri, position);
           if (t && INDEX.modules[t]) {
             Object.keys(INDEX.functions).forEach(function (fnName) {
               if (funcInModule(t, fnName)) {
@@ -368,6 +502,27 @@
             suggestions.push({ label: f.name, kind: monaco.languages.CompletionItemKind.Field, insertText: f.name, detail: f.type ? "field: " + f.type : "field", documentation: md("Module field **" + f.name + (f.type ? ": " + f.type : "") + "**."), range: range });
           });
         }
+        const fn = enclosingFn(model.uri, position);
+        if (fn) {
+          fn.params.forEach(function (p) {
+            suggestions.push({
+              label: p.name, kind: monaco.languages.CompletionItemKind.Variable, insertText: p.name,
+              detail: p.type ? "parameter: " + p.type : "parameter",
+              documentation: md("Parameter **" + p.name + (p.type ? ": " + p.type : "") + "** of " + fn.name + "."), range: range
+            });
+          });
+          const seenLocals = {};
+          fn.locals.forEach(function (lcl) {
+            if (lcl.line <= position.lineNumber && !seenLocals[lcl.name]) {
+              seenLocals[lcl.name] = true;
+              suggestions.push({
+                label: lcl.name, kind: monaco.languages.CompletionItemKind.Variable, insertText: lcl.name,
+                detail: lcl.type ? "local: " + lcl.type : "local variable",
+                documentation: md("Local variable **" + lcl.name + (lcl.type ? ": " + lcl.type : "") + "**."), range: range
+              });
+            }
+          });
+        }
         return { suggestions: suggestions };
       },
     });
@@ -384,7 +539,7 @@
         if (before.endsWith(".")) {
           const base = /([A-Za-z_]\w*)\s*\.$/.exec(before);
           if (base) {
-            const t = typeOfVar(base[1], model.uri);
+            const t = typeOfVar(base[1], model.uri, position);
             if (t && NS.DB_DOCS[name]) value = "### " + t + "." + name + "\n\n" + NS.DB_DOCS[name];
             else if (NS.PROPERTY_DOCS[name]) value = "### " + base[1] + "." + name + "\n\n" + NS.PROPERTY_DOCS[name];
           }

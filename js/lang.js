@@ -28,7 +28,7 @@
         "AND", "OR", "XOR",
       ],
       constants: ["NIL", "TRUE", "FALSE", "ERROR"],
-      builtins: ["Error"],
+      builtins: ["Error", "Map", "Integer", "String", "Boolean", "any"],
       operators: ["=", "==", "<>", "!=", "<", ">", "<=", ">=", "+", "-", "*", "/", "MOD", "DIV", "->", "<-"],
       symbols: /[=<>!~?:&|+\-*/^%]+/,
 
@@ -55,7 +55,7 @@
             cases: {
               "@keywords": "keyword",
               "@constants": "constant",
-              "@builtins": "function",
+              "@builtins": "type",
               "@default": "identifier",
             },
           }],

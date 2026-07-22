@@ -42,10 +42,20 @@
       "The **error sentinel**. An operation that fails returns `ERROR`; check with `x IS ERROR`.",
   };
 
-  // Built-in function documentation (reachable from anywhere)
+  // Built-in function and type documentation (reachable from anywhere)
   NS.BUILTIN_DOCS = {
     Error:
       "**Error(msg)**\n\nConstructs an error value carrying the message `msg`.\n\n```\nRETURN Error(\"insufficient funds\")\n```",
+    Map:
+      "**Map**\n\nBuilt-in associative collection storing key-value pairs.\n\n```\nbalances: Map\n```",
+    Integer:
+      "**Integer**\n\nBuilt-in 64-bit signed integer type.",
+    String:
+      "**String**\n\nBuilt-in UTF-8 character string type.",
+    Boolean:
+      "**Boolean**\n\nBuilt-in boolean type representing `TRUE` or `FALSE`.",
+    any:
+      "**any**\n\nBuilt-in dynamic type representing any value.",
   };
 
   // Member / property documentation (for result.error, row[0], etc.)
