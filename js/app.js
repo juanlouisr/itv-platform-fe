@@ -777,6 +777,77 @@
       }
     });
 
+    const btnCreateFile = document.getElementById("btn-create-file");
+    if (btnCreateFile) {
+      btnCreateFile.addEventListener("click", function () {
+        if (sidebarEl.querySelector(".file-create-input")) {
+          sidebarEl.querySelector(".file-create-input").focus();
+          return;
+        }
+
+        const inputRow = document.createElement("div");
+        inputRow.className = "file-row editing";
+        inputRow.innerHTML =
+          '<span class="file-ic fi-file"></span>' +
+          '<input type="text" class="file-create-input" placeholder="filename.pseudo" />';
+        
+        sidebarEl.appendChild(inputRow);
+        const input = inputRow.querySelector(".file-create-input");
+        input.focus();
+
+        let finished = false;
+        function finishCreation() {
+          if (finished) return;
+          finished = true;
+          let name = input.value.trim();
+          if (name) {
+            if (!name.endsWith(".pseudo")) {
+              name += ".pseudo";
+            }
+            if (byName[name]) {
+              alert("A file with this name already exists.");
+              renderSidebar();
+              return;
+            }
+            const uri = monaco.Uri.parse("inmemory://pseudo/" + name);
+            const model = monaco.editor.createModel("", NS.LANGUAGE_ID, uri);
+            model.onDidChangeContent(function () {
+              clearTimeout(debounce);
+              debounce = setTimeout(function () {
+                INDEX = rebuildIndex();
+                saveState(snapshot());
+              }, 600);
+            });
+            const newFileObj = { name: name, uri: uri, model: model };
+            models.push(newFileObj);
+            byName[name] = newFileObj;
+            INDEX = rebuildIndex();
+            saveState(snapshot());
+            renderSidebar();
+            openModel(newFileObj);
+          } else {
+            renderSidebar();
+          }
+        }
+
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") {
+            finishCreation();
+          } else if (e.key === "Escape") {
+            renderSidebar();
+          }
+        });
+
+        input.addEventListener("blur", function () {
+          setTimeout(function () {
+            if (document.activeElement !== input) {
+              finishCreation();
+            }
+          }, 150);
+        });
+      });
+    }
+
     // ---------- wire up ----------
     renderInstruction(currentInstruction);
     renderSidebar();

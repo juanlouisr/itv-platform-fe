@@ -133,6 +133,37 @@ body {
   letter-spacing: 1px;
   color: var(--text-dim);
   font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.btn-create-file {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, transform 0.15s;
+}
+.btn-create-file:hover {
+  color: var(--accent);
+  transform: scale(1.15);
+}
+.file-create-input {
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text-br);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 1px 6px;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
 }
 
 /* instruction panel (scrollable) */
